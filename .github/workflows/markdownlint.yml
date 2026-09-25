@@ -1,0 +1,41 @@
+name: markdownlint
+
+# Called by a repository to lint the Markdown files a push changed, with the
+# repository's own .markdownlint.yaml:
+#
+#   on:
+#     push:
+#       paths:
+#         - 'docs/**'
+#         - mkdocs.yml
+#
+#   jobs:
+#     Lint:
+#       uses: exordos/exordos_ci/.github/workflows/markdownlint.yml@master
+
+on:
+  workflow_call:
+    inputs:
+      files:
+        description: The files to lint when changed, as changed-files patterns
+        required: false
+        type: string
+        default: '**/*.md'
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: tj-actions/changed-files@v47
+        id: changed-files
+        with:
+          files: ${{ inputs.files }}
+          separator: ","
+      - uses: DavidAnson/markdownlint-cli2-action@v24
+        if: steps.changed-files.outputs.any_changed == 'true'
+        with:
+          globs: ${{ steps.changed-files.outputs.all_changed_files }}
+          separator: ","

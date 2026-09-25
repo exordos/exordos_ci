@@ -1,0 +1,83 @@
+name: docs
+
+# Called by a repository to build its mkdocs site with `tox -e docs-deploy`
+# (which runs `mkdocs gh-deploy` onto the gh-pages branch) and deploy that
+# branch to GitHub Pages.  The caller has to grant the permissions:
+#
+#   on:
+#     push:
+#       branches:
+#         - master
+#       paths:
+#         - 'docs/**'
+#         - mkdocs.yml
+#     workflow_dispatch:
+#
+#   jobs:
+#     Docs:
+#       uses: exordos/exordos_ci/.github/workflows/docs.yml@master
+#       permissions:
+#         contents: write
+#         pages: write
+#         id-token: write
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: The Python to run tox with
+        required: false
+        type: string
+        default: "3.12"
+      tox-env:
+        description: The tox environment that pushes the site to gh-pages
+        required: false
+        type: string
+        default: docs-deploy
+
+jobs:
+  build_mkdocs:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ inputs.python-version }}
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+      - name: Install tox-uv
+        run: uv tool install tox --with tox-uv
+      - name: Deploy docs to GitHub Pages
+        run: tox -e "$TOX_ENV"
+        env:
+          TOX_ENV: ${{ inputs.tox-env }}
+
+  deploy_mkdocs:
+    needs: build_mkdocs
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: gh-pages
+      - name: Setup Pages
+        uses: actions/configure-pages@v6
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: '.'
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
