@@ -1,0 +1,229 @@
+name: element_realm_test
+
+# Called by an element repository once its Build job has pushed a version: get
+# a realm, wait until that version reaches the realm's catalog, install the
+# elements on it in order and check them, then delete the realm.
+#
+#   Test:
+#     needs: Build
+#     uses: exordos/exordos_ci/.github/workflows/element_realm_test.yml@master
+#     with:
+#       elements: dbaas communal_pg_cluster
+#       version: ${{ needs.Build.outputs.version }}
+#       overbook: true
+#       check-script: .github/scripts/check-communal-pg-cluster.sh
+#     secrets: inherit
+#
+# prepare-script and check-script run from the calling repository with the
+# CLI pointed at the realm, and see REALM_DOMAIN, REALM_CORE_URL and
+# ADMIN_PASSWORD -- and, with `ssh: true`, SSH_KEY, SSH_HOST and SSH_PORT.
+
+on:
+  workflow_call:
+    inputs:
+      elements:
+        description: Space-separated elements to install, in order
+        required: true
+        type: string
+      version:
+        description: The version the Build job pushed, installed for every element
+        required: true
+        type: string
+      overbook:
+        description: >-
+          Overbook the realm's hypervisor (cores and RAM ratio 10) before
+          anything is installed, for elements whose nodes do not fit a warm
+          realm one to one
+        required: false
+        type: boolean
+        default: false
+      dependencies:
+        description: >-
+          Space-separated elements to install first, in order, at their
+          latest version -- metapaas for a metapaas plugin, say
+        required: false
+        type: string
+        default: ""
+      prepare-script:
+        description: >-
+          A script in the calling repository to run on the realm before the
+          elements are installed, with the CLI pointed at the realm
+        required: false
+        type: string
+        default: ""
+      check-script:
+        description: >-
+          A script in the calling repository to run once the elements are
+          ACTIVE, with the CLI pointed at the realm
+        required: false
+        type: string
+        default: ""
+      ssh:
+        description: >-
+          Put a key of the run's own on the realm and wait until ssh takes
+          it; the scripts then get SSH_KEY, SSH_HOST and SSH_PORT
+        required: false
+        type: boolean
+        default: false
+      element-timeout:
+        description: Seconds to wait for each element to become ACTIVE
+        required: false
+        type: number
+        default: 540
+      ci-ref:
+        description: >-
+          The ref of exordos_ci whose scripts to use -- keep it the same as
+          the ref this workflow is called at
+        required: false
+        type: string
+        default: master
+    secrets:
+      TEST_PROJECT_ID:
+        required: true
+      TEST_USERNAME:
+        required: true
+      TEST_USER_PASSWORD:
+        required: true
+
+env:
+  PROJECT_ID: ${{ secrets.TEST_PROJECT_ID }}
+  USERNAME: ${{ secrets.TEST_USERNAME }}
+  USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
+  ENDPOINT: https://exordos.com/api/core
+  REALM_TTL_HOURS: "2"
+  SCRIPTS: exordos_ci/.github/scripts
+
+jobs:
+  Test:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Install exordos
+        run: curl -fsSL https://repo.exordos.com/install.sh | sh
+      - name: Checkout the realm scripts
+        uses: actions/checkout@v7
+        with:
+          repository: exordos/exordos_ci
+          ref: ${{ inputs.ci-ref }}
+          path: exordos_ci
+      - name: Checkout the element
+        if: ${{ inputs.prepare-script != '' || inputs.check-script != '' }}
+        uses: actions/checkout@v7
+        with:
+          path: element
+          # The element's version comes from git, for anything that installs
+          # its package, such as a functional suite.
+          fetch-depth: 0
+      - name: get_realm
+        timeout-minutes: 15
+        working-directory: exordos_ci
+        run: |
+          set -euo pipefail
+
+          # The repository's name, so a realm left behind says who took it.
+          REALM_NAME="${GITHUB_REPOSITORY#*/}-${{ github.run_id }}"
+          echo "REALM_NAME=$REALM_NAME" >> "$GITHUB_ENV"
+
+          if [ "$SSH" = "true" ]; then
+              # A key of this run's own, so the realm can be reached over ssh.
+              SSH_KEY="$RUNNER_TEMP/realm_key"
+              ssh-keygen -q -t ed25519 -N "" -f "$SSH_KEY"
+              echo "SSH_KEY=$SSH_KEY" >> "$GITHUB_ENV"
+              export SSH_PUBLIC_KEY="$SSH_KEY.pub"
+          fi
+
+          got="$(.github/scripts/get-realm.sh "$REALM_NAME" "$REALM_TTL_HOURS")"
+
+          echo "::add-mask::$(echo "$got" | sed -n 's/^ADMIN_PASSWORD=//p')"
+          echo "$got" >> "$GITHUB_ENV"
+          echo "$got" | grep -v '^ADMIN_PASSWORD='
+        env:
+          SSH: ${{ inputs.ssh }}
+      - name: wait_for_realm_api
+        timeout-minutes: 10
+        run: $SCRIPTS/wait-for-realm-api.sh "$REALM_DOMAIN" 300 >> "$GITHUB_ENV"
+      - name: check_ssh
+        if: ${{ inputs.ssh }}
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+
+          $SCRIPTS/check-realm-ssh.sh "$REALM_UUID" "$SSH_KEY" 600
+
+          ssh_info="$(exordos --endpoint "$ENDPOINT" --project-id "$PROJECT_ID" \
+              --user "$USERNAME" --password "$USER_PASSWORD" \
+              realms ssh_connection "$REALM_UUID" -o json)"
+          echo "$ssh_info" | jq -r '.[] | select(.field == "host" or .field == "port")
+              | "SSH_\(.field | ascii_upcase)=\(.value)"' >> "$GITHUB_ENV"
+      - name: point_cli_at_the_realm
+        run: |
+          exordos settings set-realm default --endpoint "$REALM_CORE_URL"
+          exordos settings set-context default --name default \
+              --user admin --password "$ADMIN_PASSWORD"
+      - name: overbook
+        if: ${{ inputs.overbook }}
+        run: $SCRIPTS/overbook-hypervisor.sh 10.0 10.0
+      - name: install_dependencies
+        if: ${{ inputs.dependencies != '' }}
+        run: |
+          set -euo pipefail
+
+          for name in $DEPENDENCIES; do
+              echo "::group::$name"
+              $SCRIPTS/install-element.sh "$name" "" "$TIMEOUT"
+              echo "::endgroup::"
+          done
+        env:
+          DEPENDENCIES: ${{ inputs.dependencies }}
+          TIMEOUT: ${{ inputs.element-timeout }}
+      - name: prepare_realm
+        if: ${{ inputs.prepare-script != '' }}
+        working-directory: element
+        run: ./"$PREPARE_SCRIPT"
+        env:
+          PREPARE_SCRIPT: ${{ inputs.prepare-script }}
+      - name: wait_for_pushed_version
+        timeout-minutes: 12
+        run: $SCRIPTS/wait-for-repo-version.sh "$VERSION" 600 $ELEMENTS
+        env:
+          VERSION: ${{ inputs.version }}
+          ELEMENTS: ${{ inputs.elements }}
+      - name: install_elements
+        run: |
+          set -euo pipefail
+
+          for name in $ELEMENTS; do
+              echo "::group::$name $VERSION"
+              $SCRIPTS/install-element.sh "$name" "$VERSION" "$TIMEOUT"
+              echo "::endgroup::"
+          done
+        env:
+          VERSION: ${{ inputs.version }}
+          ELEMENTS: ${{ inputs.elements }}
+          TIMEOUT: ${{ inputs.element-timeout }}
+      - name: check_elements
+        if: ${{ inputs.check-script != '' }}
+        working-directory: element
+        run: ./"$CHECK_SCRIPT"
+        env:
+          CHECK_SCRIPT: ${{ inputs.check-script }}
+      # What the realm itself says when something did not come up: an element
+      # waits on nodes, so the nodes, their sets and the hypervisor they have
+      # to fit on are where the reason usually is.
+      - name: realm_diagnostics
+        if: ${{ failure() && env.REALM_CORE_URL != '' }}
+        run: |
+          set +e
+          for what in "ee l" "c h l" "c s l" "c n l"; do
+              echo "::group::exordos $what"
+              exordos $what
+              echo "::endgroup::"
+          done
+      - name: Setup upterm session
+        uses: owenthereal/action-upterm@v1
+        if: ${{ failure() }}
+        with:
+          limit-access-to-actor: true
+          wait-timeout-minutes: 15
+      - name: delete_realm
+        if: ${{ always() }}
+        run: $SCRIPTS/delete-realm.sh

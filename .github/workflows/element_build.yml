@@ -1,0 +1,120 @@
+name: element_build
+
+# Called by an element repository to build the element on a self-hosted
+# runner and push it to a repository.  The self-hosted runners come with
+# packer, KVM and the exordos CLI already set up, so the build is just
+# checkout + build + push.  The pushed version is the `version` output, which
+# element_realm_test.yml takes to install it:
+#
+#   Build:
+#     if: ${{ github.actor != 'dependabot[bot]' }}
+#     uses: exordos/exordos_ci/.github/workflows/element_build.yml@master
+#     with:
+#       push-target: exordos_repo
+#     secrets:
+#       PUSH_CFG: ${{ secrets.PUSH_EXORDOS_CFG }}
+#
+#   Test:
+#     needs: Build
+#     uses: exordos/exordos_ci/.github/workflows/element_realm_test.yml@master
+#     with:
+#       elements: empty
+#       version: ${{ needs.Build.outputs.version }}
+#     secrets: inherit
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: The labels of the self-hosted runner to build on, as JSON
+        required: false
+        type: string
+        default: '["self-hosted", "vm"]'
+      push-target:
+        description: >-
+          The target of the push configuration to push to -- local or
+          exordos_repo, say
+        required: false
+        type: string
+        default: local
+      element-dir:
+        description: >-
+          The directory the built artifacts are pushed from, when not the
+          CLI's default
+        required: false
+        type: string
+        default: ""
+      latest:
+        description: Push a stable version as the latest one too
+        required: false
+        type: boolean
+        default: true
+      build-args:
+        description: >-
+          Extra arguments to `exordos build` -- --manifest-var key=value,
+          say
+        required: false
+        type: string
+        default: ""
+      build-timeout:
+        description: Minutes the build and push may take
+        required: false
+        type: number
+        default: 60
+    secrets:
+      PUSH_CFG:
+        description: The push configuration (exordos.push.yaml), base64-encoded
+        required: true
+    outputs:
+      version:
+        description: The version that was built and pushed
+        value: ${{ jobs.Build.outputs.version }}
+
+jobs:
+  Build:
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    outputs:
+      version: ${{ steps.build.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The element's version comes from git.
+          fetch-depth: 0
+      - name: Build Element
+        id: build
+        timeout-minutes: ${{ inputs.build-timeout }}
+        env:
+          PUSH_CFG: ${{ secrets.PUSH_CFG }}
+          PUSH_TARGET: ${{ inputs.push-target }}
+          ELEMENT_DIR: ${{ inputs.element-dir }}
+          LATEST: ${{ inputs.latest }}
+          BUILD_ARGS: ${{ inputs.build-args }}
+        run: |
+          set -eux
+
+          VERSION="$(exordos get-version .)"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          exordos build $BUILD_ARGS "$(pwd)"
+
+          push=(exordos push -c exordos/exordos.push.yaml -t "$PUSH_TARGET" -f)
+          if [ -n "$ELEMENT_DIR" ]; then
+              push+=(-e "$ELEMENT_DIR")
+          fi
+          if [ "$LATEST" = "true" ]; then
+              push+=(--latest)
+          fi
+
+          # The runner is shared between runs: keep the push configuration
+          # only for as long as the push takes.
+          set +x
+          echo "$PUSH_CFG" | base64 -d > exordos/exordos.push.yaml
+          set -x
+          trap 'rm -f exordos/exordos.push.yaml' EXIT
+          "${push[@]}"
+      - name: Setup upterm session
+        uses: owenthereal/action-upterm@v1
+        if: ${{ failure() }}
+        with:
+          limit-access-to-actor: true
+          wait-timeout-minutes: 15
