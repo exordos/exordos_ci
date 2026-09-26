@@ -8,6 +8,9 @@ Workflow | What it does
 [`element_realm_test.yml`](.github/workflows/element_realm_test.yml) | Gets a realm, installs the pushed version on it, checks it, deletes the realm
 [`docs.yml`](.github/workflows/docs.yml) | Builds the mkdocs site and deploys it to GitHub Pages
 [`markdownlint.yml`](.github/workflows/markdownlint.yml) | Lints the Markdown files a push changed
+[`python_tests.yml`](.github/workflows/python_tests.yml) | Lints a Python package, runs its unit tests and coverage with tox
+[`python_dist.yml`](.github/workflows/python_dist.yml) | Builds a Python package's wheel and source tarball
+[`python_release.yml`](.github/workflows/python_release.yml) | Signs the published distributions and makes a GitHub release
 
 ## Usage
 
@@ -144,3 +147,90 @@ jobs:
 Input | Default | Description
 --- | --- | ---
 `files` | `**/*.md` | Files to lint when changed, as changed-files patterns
+
+## python_tests.yml
+
+Runs three jobs on GitHub-hosted runners with tox and tox-uv: the lint
+(`tox -e ruff-check`), the unit tests under each Python
+(`tox -e <version><suffix>`) and the coverage (`tox -e begin,py312,end`).
+
+```yaml
+name: tests
+
+on:
+  push:
+  pull_request:
+    types: [opened]
+
+jobs:
+  Tests:
+    uses: exordos/exordos_ci/.github/workflows/python_tests.yml@master
+    with:
+      postgres-db: metapaas
+```
+
+Input | Default | Description
+--- | --- | ---
+`python-versions` | `["3.10", "3.12", "3.14"]` | Pythons to run the unit tests under, as JSON
+`python-version` | `3.12` | Python to run the lint and coverage with
+`apt-packages` | `libev-dev` | Space-separated system packages to install first
+`lint-envs` | `ruff-check` | tox environments that lint the code; empty skips the lint
+`test-env-suffix` | | Appended to the Python version to name the test environment, e.g. `-functional`
+`coverage-envs` | `begin,py312,end` | tox environments that measure the coverage; empty skips it
+`postgres-db` | | Database of a PostgreSQL service for the tests and coverage; empty starts none
+`postgres-user` | the database | User of the PostgreSQL service
+`postgres-password` | `pass` | Password of the PostgreSQL service user
+`postgres-image` | `postgres:latest` | Image of the PostgreSQL service
+
+## python_dist.yml and python_release.yml
+
+PyPI rejects [trusted publishing from a reusable
+workflow](https://github.com/pypa/gh-action-pypi-publish/issues/166), so the
+publish job stays in the calling repository, between the shared build and
+the shared release:
+
+```yaml
+name: Publish Python 🐍 distribution 📦 to PyPI
+
+on:
+  push:
+    tags:
+      - '*'
+
+jobs:
+  build:
+    uses: exordos/exordos_ci/.github/workflows/python_dist.yml@master
+
+  publish-to-pypi:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/exordos_metapaas
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: python-package-distributions
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    needs: publish-to-pypi
+    uses: exordos/exordos_ci/.github/workflows/python_release.yml@master
+    permissions:
+      contents: write
+      id-token: write
+```
+
+`python_dist.yml` runs `python -m build` and stores `dist/` as the
+`python-package-distributions` artifact.
+
+Input | Default | Description
+--- | --- | ---
+`python-version` | `3.12` | Python to build the distributions with
+
+`python_release.yml` signs that artifact with Sigstore, creates a GitHub
+release named after the tag and uploads the distributions and their
+signatures to it. It takes no inputs.

@@ -1,0 +1,166 @@
+name: python tests
+
+# Called by a repository to lint its Python code, run its unit tests under
+# several Pythons and measure the coverage, all through tox (with tox-uv):
+#
+#   on:
+#     push:
+#     pull_request:
+#       types: [opened]
+#
+#   jobs:
+#     Tests:
+#       uses: exordos/exordos_ci/.github/workflows/python_tests.yml@master
+#       with:
+#         postgres-db: metapaas
+
+on:
+  workflow_call:
+    inputs:
+      python-versions:
+        description: The Pythons to run the unit tests under, as JSON
+        required: false
+        type: string
+        default: '["3.10", "3.12", "3.14"]'
+      python-version:
+        description: The Python to run the lint and coverage with
+        required: false
+        type: string
+        default: "3.12"
+      apt-packages:
+        description: Space-separated system packages to install first
+        required: false
+        type: string
+        default: libev-dev
+      lint-envs:
+        description: The tox environments that lint the code; empty skips the lint
+        required: false
+        type: string
+        default: ruff-check
+      test-env-suffix:
+        description: Appended to the Python version to name the tox test environment (e.g. -functional)
+        required: false
+        type: string
+        default: ""
+      coverage-envs:
+        description: The tox environments that measure the coverage; empty skips it
+        required: false
+        type: string
+        default: begin,py312,end
+      postgres-db:
+        description: Database of a PostgreSQL service for the tests and coverage; empty starts none
+        required: false
+        type: string
+        default: ""
+      postgres-user:
+        description: User of the PostgreSQL service; the database name if empty
+        required: false
+        type: string
+        default: ""
+      postgres-password:
+        description: Password of the PostgreSQL service user
+        required: false
+        type: string
+        default: pass
+      postgres-image:
+        description: Image of the PostgreSQL service
+        required: false
+        type: string
+        default: postgres:latest
+
+jobs:
+  Lint:
+    if: ${{ inputs.lint-envs != '' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up Python ${{ inputs.python-version }}
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ inputs.python-version }}
+      - name: Install requirements
+        if: ${{ inputs.apt-packages != '' }}
+        run: sudo apt update && sudo apt install -y $APT_PACKAGES
+        env:
+          APT_PACKAGES: ${{ inputs.apt-packages }}
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+      - name: Install tox-uv
+        run: uv tool install tox --with tox-uv
+      - name: Lint
+        run: tox -e "$TOX_ENVS"
+        env:
+          TOX_ENVS: ${{ inputs.lint-envs }}
+
+  Tests:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: true
+      matrix:
+        python-version: ${{ fromJSON(inputs.python-versions) }}
+    services:
+      postgresql:
+        # An empty image does not start the service.
+        image: ${{ inputs.postgres-db != '' && inputs.postgres-image || '' }}
+        env:
+          POSTGRES_DB: ${{ inputs.postgres-db }}
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_USER: ${{ inputs.postgres-user || inputs.postgres-db }}
+          POSTGRES_PASSWORD: ${{ inputs.postgres-password }}
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install requirements
+        if: ${{ inputs.apt-packages != '' }}
+        run: sudo apt update && sudo apt install -y $APT_PACKAGES
+        env:
+          APT_PACKAGES: ${{ inputs.apt-packages }}
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+      - name: Install tox-uv
+        run: uv tool install tox --with tox-uv
+      - name: Unit tests
+        run: tox -e "$PYTHON_VERSION$TOX_ENV_SUFFIX"
+        env:
+          PYTHON_VERSION: ${{ matrix.python-version }}
+          TOX_ENV_SUFFIX: ${{ inputs.test-env-suffix }}
+
+  Coverage:
+    if: ${{ inputs.coverage-envs != '' }}
+    runs-on: ubuntu-24.04
+    services:
+      postgresql:
+        image: ${{ inputs.postgres-db != '' && inputs.postgres-image || '' }}
+        env:
+          POSTGRES_DB: ${{ inputs.postgres-db }}
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_USER: ${{ inputs.postgres-user || inputs.postgres-db }}
+          POSTGRES_PASSWORD: ${{ inputs.postgres-password }}
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up Python ${{ inputs.python-version }}
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ inputs.python-version }}
+      - name: Install requirements
+        if: ${{ inputs.apt-packages != '' }}
+        run: sudo apt update && sudo apt install -y $APT_PACKAGES
+        env:
+          APT_PACKAGES: ${{ inputs.apt-packages }}
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+      - name: Install tox-uv
+        run: uv tool install tox --with tox-uv
+      - name: Coverage
+        run: tox -e "$TOX_ENVS"
+        env:
+          TOX_ENVS: ${{ inputs.coverage-envs }}
