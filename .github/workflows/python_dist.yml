@@ -1,0 +1,67 @@
+name: python dist
+
+# Called by a repository to build its wheel and source tarball and store them
+# as the python-package-distributions artifact.  PyPI rejects trusted
+# publishing from a reusable workflow, so the caller publishes the artifact
+# from a job of its own, then python_release.yml signs it and makes the
+# GitHub release:
+#
+#   on:
+#     push:
+#       tags:
+#         - '*'
+#
+#   jobs:
+#     Build:
+#       uses: exordos/exordos_ci/.github/workflows/python_dist.yml@master
+#     Publish:
+#       needs: Build
+#       runs-on: ubuntu-latest
+#       environment:
+#         name: pypi
+#         url: https://pypi.org/p/<package>
+#       permissions:
+#         id-token: write
+#       steps:
+#         - uses: actions/download-artifact@v8
+#           with:
+#             name: python-package-distributions
+#             path: dist/
+#         - uses: pypa/gh-action-pypi-publish@release/v1
+#     Release:
+#       needs: Publish
+#       uses: exordos/exordos_ci/.github/workflows/python_release.yml@master
+#       permissions:
+#         contents: write
+#         id-token: write
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: The Python to build the distributions with
+        required: false
+        type: string
+        default: "3.12"
+
+jobs:
+  build:
+    name: Build distribution 📦
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ inputs.python-version }}
+      - name: Install pypa/build
+        run: python3 -m pip install build --user
+      - name: Build a binary wheel and a source tarball
+        run: python3 -m build
+      - name: Store the distribution packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: python-package-distributions
+          path: dist/
