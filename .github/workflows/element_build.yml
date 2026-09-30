@@ -61,6 +61,18 @@ on:
         required: false
         type: number
         default: 60
+      artifact-name:
+        description: >-
+          An artifact of this run to download before the build -- one a
+          previous job built, say a web client archive the element packs
+        required: false
+        type: string
+        default: ""
+      artifact-path:
+        description: Where to download the artifact to
+        required: false
+        type: string
+        default: "."
     secrets:
       PUSH_CFG:
         description: The push configuration (exordos.push.yaml), base64-encoded
@@ -80,6 +92,12 @@ jobs:
         with:
           # The element's version comes from git.
           fetch-depth: 0
+      - name: Download artifact
+        if: ${{ inputs.artifact-name != '' }}
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: ${{ inputs.artifact-path }}
       - name: Build Element
         id: build
         timeout-minutes: ${{ inputs.build-timeout }}

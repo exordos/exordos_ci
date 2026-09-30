@@ -57,6 +57,8 @@ Input | Default | Description
 `latest` | `true` | Push a stable version as the latest one too
 `build-args` | | Extra arguments to `exordos build`
 `build-timeout` | `60` | Minutes the build and push may take
+`artifact-name` | | Artifact of this run to download before the build (a web client archive a previous job built, say)
+`artifact-path` | `.` | Where to download the artifact to
 
 Secret | Description
 --- | ---
