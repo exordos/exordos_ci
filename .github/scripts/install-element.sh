@@ -1,11 +1,19 @@
 #!/usr/bin/env bash
 # Install an element and wait until it is ACTIVE on the version asked for.
 #
-# Usage: install-element.sh <name> [version] [timeout-seconds]
+# Usage: install-element.sh [--no-wait] <name> [version] [timeout-seconds]
 #
 # Talks to whichever realm the CLI is pointed at.  Without a version the
-# repository's latest is installed and any version passes.
+# repository's latest is installed and any version passes.  With --no-wait the
+# install is only sent, so several elements can be set up at once and waited
+# for afterwards with wait-for-element.sh.
 set -uo pipefail
+
+wait=true
+if [ "${1:-}" = "--no-wait" ]; then
+    wait=false
+    shift
+fi
 
 name="$1"
 version="${2:-}"
@@ -35,7 +43,11 @@ if ! "${install[@]}"; then
     if [ -z "$listed" ]; then
         exit 1
     fi
-    echo "The install failed, but the realm has $name: waiting for it"
+    echo "The install failed, but the realm has $name: taking it as sent"
+fi
+
+if [ "$wait" = false ]; then
+    exit 0
 fi
 
 "$here/wait-for-element.sh" "$name" "$timeout" || exit 1
