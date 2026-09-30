@@ -39,8 +39,9 @@ on:
         default: false
       dependencies:
         description: >-
-          Space-separated elements to install first, in order, at their
-          latest version -- metapaas for a metapaas plugin, say
+          Space-separated elements to install first at their latest
+          version, all at once, then waited for -- metapaas for a metapaas
+          plugin, say
         required: false
         type: string
         default: ""
@@ -167,9 +168,17 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Send every install first, so the dependencies come up side by
+          # side, then wait for each in order.
           for name in $DEPENDENCIES; do
-              echo "::group::$name"
-              $SCRIPTS/install-element.sh "$name" "" "$TIMEOUT"
+              echo "::group::install $name"
+              $SCRIPTS/install-element.sh --no-wait "$name"
+              echo "::endgroup::"
+          done
+          for name in $DEPENDENCIES; do
+              echo "::group::wait $name"
+              $SCRIPTS/wait-for-element.sh "$name" "$TIMEOUT"
+              exordos e e show "$name"
               echo "::endgroup::"
           done
         env:
