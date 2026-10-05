@@ -201,8 +201,19 @@ jobs:
           set -euo pipefail
 
           for name in $ELEMENTS; do
-              echo "::group::$name $VERSION"
-              $SCRIPTS/install-element.sh "$name" "$VERSION" "$TIMEOUT"
+              echo "::group::install $name $VERSION"
+              $SCRIPTS/install-element.sh --no-wait "$name" "$VERSION"
+              echo "::endgroup::"
+          done
+          for name in $ELEMENTS; do
+              echo "::group::wait $name $VERSION"
+              $SCRIPTS/wait-for-element.sh "$name" "$TIMEOUT"
+              installed="$(exordos ee l -o json -f "name=$name" | jq -r '.[0].version')"
+              if [ "$installed" != "$VERSION" ]; then
+                  echo "Installed $name $installed instead of $VERSION" >&2
+                  exit 1
+              fi
+              exordos e e show "$name"
               echo "::endgroup::"
           done
         env:
