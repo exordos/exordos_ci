@@ -56,6 +56,16 @@ on:
         required: false
         type: string
         default: ""
+      build-jobs:
+        description: Number of element images to build in parallel
+        required: false
+        type: number
+        default: 1
+      push-jobs:
+        description: Number of artifacts to upload in parallel
+        required: false
+        type: number
+        default: 1
       build-timeout:
         description: Minutes the build and push may take
         required: false
@@ -107,15 +117,17 @@ jobs:
           ELEMENT_DIR: ${{ inputs.element-dir }}
           LATEST: ${{ inputs.latest }}
           BUILD_ARGS: ${{ inputs.build-args }}
+          BUILD_JOBS: ${{ inputs.build-jobs }}
+          PUSH_JOBS: ${{ inputs.push-jobs }}
         run: |
           set -eux
 
           VERSION="$(exordos get-version .)"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-          exordos build $BUILD_ARGS "$(pwd)"
+          exordos build $BUILD_ARGS --jobs "$BUILD_JOBS" "$(pwd)"
 
-          push=(exordos push -c exordos/exordos.push.yaml -t "$PUSH_TARGET" -f)
+          push=(exordos push --jobs "$PUSH_JOBS" -c exordos/exordos.push.yaml -t "$PUSH_TARGET" -f)
           if [ -n "$ELEMENT_DIR" ]; then
               push+=(-e "$ELEMENT_DIR")
           fi

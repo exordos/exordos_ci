@@ -32,6 +32,8 @@ jobs:
     uses: exordos/exordos_ci/.github/workflows/element_build.yml@master
     with:
       push-target: exordos_repo
+      build-jobs: 4
+      push-jobs: 4
     secrets:
       PUSH_CFG: ${{ secrets.PUSH_EXORDOS_CFG }}
   Test:
@@ -56,6 +58,8 @@ Input | Default | Description
 `element-dir` | | Directory to push the artifacts from (`exordos push -e`)
 `latest` | `true` | Push a stable version as the latest one too
 `build-args` | | Extra arguments to `exordos build`
+`build-jobs` | `1` | Number of element images to build in parallel (`--jobs`)
+`push-jobs` | `1` | Number of artifacts to upload in parallel (`--jobs`)
 `build-timeout` | `60` | Minutes the build and push may take
 `artifact-name` | | Artifact of this run to download before the build (a web client archive a previous job built, say)
 `artifact-path` | `.` | Where to download the artifact to
