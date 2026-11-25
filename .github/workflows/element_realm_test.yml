@@ -77,12 +77,12 @@ on:
         type: boolean
         default: false
       realm-cores:
-        description: CPU cores for a new realm; 0 uses the platform default
+        description: CPU cores for pool selection and new orders; 0 leaves sizing unspecified
         required: false
         type: number
         default: 0
       realm-ram:
-        description: RAM in MB for a new realm; 0 uses the platform default
+        description: RAM in MB for pool selection and new orders; 0 leaves sizing unspecified
         required: false
         type: number
         default: 0

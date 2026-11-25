@@ -8,8 +8,8 @@
 #
 # SSH_PUBLIC_KEY, when set, is the path to a public key to put on the realm,
 # claimed or ordered alike, so the realm can be reached over ssh.
-# REALM_CORES and REALM_RAM (MB) optionally set the ordered realm's size.
-# Zero or unset uses the platform default. Any explicit size bypasses the pool.
+# REALM_CORES and REALM_RAM (MB) optionally select the realm's size for both
+# pool claims and new orders. Zero or unset leaves the corresponding flag out.
 #
 # Results are printed to stdout as KEY=value lines, ready to append to
 # $GITHUB_ENV, and everything else goes to stderr so stdout stays readable by
@@ -67,14 +67,9 @@ field() {
     jq -r --arg f "$1" '.[] | select(.field == $f) | .value'
 }
 
-if [ "${#sizing[@]}" -eq 0 ]; then
-    claimed="$("${exo[@]}" realms claim --name "$name" --ttl-hours "$ttl_hours" \
-    "${ssh_key[@]}" -o json 2>/dev/null)"
-    rc=$?
-else
-    echo "Custom realm size requested, ordering directly instead of claiming from the pool" >&2
-    rc="$POOL_EMPTY_EXIT_CODE"
-fi
+claimed="$("${exo[@]}" realms claim --name "$name" --ttl-hours "$ttl_hours" \
+    "${ssh_key[@]}" "${sizing[@]}" -o json 2>/dev/null)"
+rc=$?
 
 if [ "$rc" -eq 0 ]; then
     echo "Claimed a warm realm" >&2
@@ -88,13 +83,11 @@ fi
 if [ "$rc" -ne "$POOL_EMPTY_EXIT_CODE" ]; then
     echo "Claim failed with exit code $rc" >&2
     "${exo[@]}" realms claim --name "$name" --ttl-hours "$ttl_hours" \
-        "${ssh_key[@]}" >&2
+        "${ssh_key[@]}" "${sizing[@]}" >&2
     exit "$rc"
 fi
 
-if [ "${#sizing[@]}" -eq 0 ]; then
-    echo "The pool was empty, ordering a realm instead" >&2
-fi
+echo "No matching realm in the pool, ordering a realm instead" >&2
 
 # `realms add` reports nothing a machine can read and cannot set a deadline,
 # so the uuid and the password are chosen here and the realm is read back once
