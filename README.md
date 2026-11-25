@@ -89,12 +89,30 @@ Input | Default | Description
 `ssh` | `false` | Put a key on the realm; the scripts get `SSH_KEY`, `SSH_HOST`, `SSH_PORT`
 `element-timeout` | `540` | Seconds to wait for each element to become ACTIVE
 `keep-realm` | `false` | Skip realm deletion after the test, on success or failure
+`realm-cores` | `0` | CPU cores for a new realm; 0 uses the platform default
+`realm-ram` | `0` | RAM in MB for a new realm; 0 uses the platform default
 `ci-ref` | `master` | Ref of exordos_ci whose scripts to use; keep it equal to the ref the workflow is called at
 
 Set `keep-realm: true` in the calling job's `with` block to retain the realm
 for debugging. This skips workflow cleanup only: a realm claimed from the
 pool still has its two-hour TTL. A realm ordered when the pool is empty has
 no TTL and must be deleted manually.
+
+To order a larger test realm, set both sizing inputs in the calling job:
+
+```yaml
+with:
+  elements: exordos_notification
+  version: ${{ needs.Build.outputs.version }}
+  realm-cores: 8
+  realm-ram: 16384
+```
+
+Setting either sizing input above zero bypasses the warm pool and orders a
+new realm with the requested resources. Unspecified resources use platform
+defaults; the CPU/RAM combination must be accepted by the platform. With both
+inputs at zero, the workflow claims from the pool and orders only if it is
+empty. Ordered realms have no TTL; `keep-realm: true` requires manual cleanup.
 
 The prepare and check scripts run from the calling repository with the CLI
 pointed at the realm, and see `REALM_DOMAIN`, `REALM_CORE_URL` and
