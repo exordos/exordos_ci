@@ -76,6 +76,16 @@ on:
         required: false
         type: boolean
         default: false
+      realm-cores:
+        description: CPU cores for pool selection and new orders; 0 leaves sizing unspecified
+        required: false
+        type: number
+        default: 0
+      realm-ram:
+        description: RAM in MB for pool selection and new orders; 0 leaves sizing unspecified
+        required: false
+        type: number
+        default: 0
       ci-ref:
         description: >-
           The ref of exordos_ci whose scripts to use -- keep it the same as
@@ -144,6 +154,8 @@ jobs:
           echo "$got" | grep -v '^ADMIN_PASSWORD='
         env:
           SSH: ${{ inputs.ssh }}
+          REALM_CORES: ${{ inputs.realm-cores }}
+          REALM_RAM: ${{ inputs.realm-ram }}
       - name: wait_for_realm_api
         timeout-minutes: 10
         run: $SCRIPTS/wait-for-realm-api.sh "$REALM_DOMAIN" 300 >> "$GITHUB_ENV"

@@ -8,6 +8,8 @@
 #
 # SSH_PUBLIC_KEY, when set, is the path to a public key to put on the realm,
 # claimed or ordered alike, so the realm can be reached over ssh.
+# REALM_CORES and REALM_RAM (MB) optionally select the realm's size for both
+# pool claims and new orders. Zero or unset leaves the corresponding flag out.
 #
 # Results are printed to stdout as KEY=value lines, ready to append to
 # $GITHUB_ENV, and everything else goes to stderr so stdout stays readable by
@@ -24,6 +26,19 @@ set -uo pipefail
 name="$1"
 ttl_hours="${2:-2}"
 cold_timeout="${3:-660}"
+
+sizing=()
+for spec in REALM_CORES:--node-cores REALM_RAM:--node-ram; do
+    var="${spec%%:*}"
+    value="${!var:-0}"
+    if [[ ! "$value" =~ ^(0|[1-9][0-9]*)$ ]]; then
+        echo "$var must be a non-negative integer (0 uses the default)" >&2
+        exit 1
+    fi
+    if [ "$value" != 0 ]; then
+        sizing+=("${spec#*:}" "$value")
+    fi
+done
 
 : "${ENDPOINT:?ENDPOINT is not set}"
 : "${PROJECT_ID:?PROJECT_ID is not set}"
@@ -53,7 +68,7 @@ field() {
 }
 
 claimed="$("${exo[@]}" realms claim --name "$name" --ttl-hours "$ttl_hours" \
-    "${ssh_key[@]}" -o json 2>/dev/null)"
+    "${ssh_key[@]}" "${sizing[@]}" -o json 2>/dev/null)"
 rc=$?
 
 if [ "$rc" -eq 0 ]; then
@@ -68,11 +83,11 @@ fi
 if [ "$rc" -ne "$POOL_EMPTY_EXIT_CODE" ]; then
     echo "Claim failed with exit code $rc" >&2
     "${exo[@]}" realms claim --name "$name" --ttl-hours "$ttl_hours" \
-        "${ssh_key[@]}" >&2
+        "${ssh_key[@]}" "${sizing[@]}" >&2
     exit "$rc"
 fi
 
-echo "The pool was empty, ordering a realm instead" >&2
+echo "No matching realm in the pool, ordering a realm instead" >&2
 
 # `realms add` reports nothing a machine can read and cannot set a deadline,
 # so the uuid and the password are chosen here and the realm is read back once
@@ -80,16 +95,13 @@ echo "The pool was empty, ordering a realm instead" >&2
 uuid="$(uuidgen)"
 admin_password="$(openssl rand -hex 16)"
 
-# Sizing is left out on purpose: the defaults are what the pool is warmed
-# from, so an ordered realm matches a claimed one.
-#
 # The output is scrubbed rather than passed through: some of the CLI's errors
 # quote the whole request back, the password with it, and the caller cannot
 # have masked it yet -- it was generated here, moments ago.
 add_log="$(mktemp)"
 trap 'rm -f "$add_log"' EXIT
 if ! "${exo[@]}" realms add --uuid "$uuid" --name "$name" \
-        --admin-password "$admin_password" "${ssh_key[@]}" \
+        --admin-password "$admin_password" "${ssh_key[@]}" "${sizing[@]}" \
         > "$add_log" 2>&1; then
     sed "s/$admin_password/***/g" "$add_log" >&2
     echo "Could not order a realm" >&2
