@@ -76,7 +76,7 @@ Output | Description
 
 Runs on a GitHub-hosted runner: gets a realm from exordos.com, waits until the
 pushed version reaches the realm's catalog, installs the elements in order,
-runs the check script and deletes the realm, whatever the outcome.
+runs the check script and, by default, deletes the realm whatever the outcome.
 
 Input | Default | Description
 --- | --- | ---
@@ -88,7 +88,13 @@ Input | Default | Description
 `check-script` | | Script in the calling repository to run once the elements are ACTIVE
 `ssh` | `false` | Put a key on the realm; the scripts get `SSH_KEY`, `SSH_HOST`, `SSH_PORT`
 `element-timeout` | `540` | Seconds to wait for each element to become ACTIVE
+`keep-realm` | `false` | Skip realm deletion after the test, on success or failure
 `ci-ref` | `master` | Ref of exordos_ci whose scripts to use; keep it equal to the ref the workflow is called at
+
+Set `keep-realm: true` in the calling job's `with` block to retain the realm
+for debugging. This skips workflow cleanup only: a realm claimed from the
+pool still has its two-hour TTL. A realm ordered when the pool is empty has
+no TTL and must be deleted manually.
 
 The prepare and check scripts run from the calling repository with the CLI
 pointed at the realm, and see `REALM_DOMAIN`, `REALM_CORE_URL` and
