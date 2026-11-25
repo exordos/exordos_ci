@@ -3,9 +3,8 @@
 #
 # Usage: wait-for-element.sh <name> [timeout-seconds] [version-to-leave]
 #
-# `exordos ee l` talks to the core API, which may be unavailable while
-# an element reconciles. Keep stderr visible to diagnose failed reads.
-# Read the status into a
+# `exordos ee l` talks to the core API, which 502s for seconds at a time while
+# an element reconciles -- the core restarts under it.  Read the status into a
 # variable so an unreadable one counts as "not ready yet": inlining the call in
 # a `while [ $(...) != ACTIVE ]` condition makes a failed read look like
 # success, because `[ != ACTIVE ]` on an empty string exits 2 and a `while`
@@ -25,8 +24,8 @@ status=""
 version=""
 
 while [ "$SECONDS" -lt "$deadline" ]; do
-    read -r status version <<<"$(exordos ee l -o json -f "name=$name" \
-        | jq -r '.[0] | "\(.status // "") \(.version // "")"' || true)"
+    read -r status version <<<"$(exordos ee l -o json -f "name=$name" 2>/dev/null \
+        | jq -r '.[0] | "\(.status // "") \(.version // "")"' 2>/dev/null || true)"
     case "$status" in
         ACTIVE)
             if [ -z "$stale_version" ] || [ "$version" != "$stale_version" ]; then

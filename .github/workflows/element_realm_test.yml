@@ -71,6 +71,11 @@ on:
         required: false
         type: number
         default: 540
+      keep-realm:
+        description: Skip realm deletion after the test, regardless of the outcome
+        required: false
+        type: boolean
+        default: false
       ci-ref:
         description: >-
           The ref of exordos_ci whose scripts to use -- keep it the same as
@@ -245,5 +250,5 @@ jobs:
           limit-access-to-actor: true
           wait-timeout-minutes: 15
       - name: delete_realm
-        if: ${{ always() }}
+        if: ${{ always() && !inputs.keep-realm }}
         run: $SCRIPTS/delete-realm.sh
